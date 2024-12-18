@@ -3,7 +3,14 @@ from post.utils.error import NotFound
 
 import argparse
 
-def purge_samba(connector: SSHConnector):
+
+def purge_samba(connector: SSHConnector) -> None:
+    """
+    Purges all packages installed on join
+
+    Args:
+        connector: A connector.
+    """
     connector.logger.info("Uninstalling Samba")
 
     packages = ["winbind", "samba", "samba-common-bin", "krb5-user",
@@ -24,7 +31,14 @@ def purge_samba(connector: SSHConnector):
 
     apt.auto_remove()
 
-def disable_services(connector: SSHConnector):
+
+def disable_services(connector: SSHConnector) -> None:
+    """
+    Disables services enabled by joining
+
+    Args:
+        connector:  A connector.
+    """
     connector.logger.info(f"Restarting services")
     services = ["winbind"]
     service = Service(connector)
@@ -35,7 +49,14 @@ def disable_services(connector: SSHConnector):
         except Exception as e:
             connector.logger.warning(e)
 
+
 def install_samba(connector: SSHConnector) -> None:
+    """
+    Installs everything needed to join to an AD as either DC or MEMBER
+
+    Args:
+        connector:  A connector.
+    """
     connector.logger.info("Installing Samba")
 
     packages = ["winbind", "samba", "samba-common-bin", "krb5-user",
@@ -56,6 +77,13 @@ def install_samba(connector: SSHConnector) -> None:
 
 
 def ensure_realm(connector: SSHConnector, realm: str) -> None:
+    """
+    Ensures the realm exists. If not raises an error so the code won't resume
+
+    Args:
+        connector:  A connector.
+        realm: the realm. It must be discoverable by machine pointed by connector.
+    """
     connector.logger.info(f"Ensuring Realm: {realm} exists")
 
     output = connector.sudo_run(f"realm discover {realm} &>/dev/null && echo 1 || echo 0")
@@ -64,7 +92,19 @@ def ensure_realm(connector: SSHConnector, realm: str) -> None:
         raise ValueError(f"Realm {realm} is not reachable. Check the file /etc/resolv.conf")
 
 
-def set_hostname(connector: SSHConnector, hostname: str, force:bool=False) -> str:
+def set_hostname(connector: SSHConnector, hostname: str, force: bool = False) -> str:
+    """
+    Sets host name on machine pointed by connector. Returns the hostname
+
+    Args:
+        connector:  A connector.
+        hostname: hostname
+        force: Force change it even if the hostname already is set
+
+    Returns:
+        str: hostname
+
+    """
     connector.logger.info(f"Setting hostname to {hostname}")
 
     current_hostname = connector.run("hostname").read().decode().strip()
@@ -79,7 +119,6 @@ def set_hostname(connector: SSHConnector, hostname: str, force:bool=False) -> st
             connector.logger.error("Wont force set hostname")
             return current_hostname
 
-
     output = connector.sudo_run("cp /etc/hosts /etc/hosts.bak")
     _ = output.read().decode().strip()
 
@@ -91,11 +130,18 @@ def set_hostname(connector: SSHConnector, hostname: str, force:bool=False) -> st
 
     return hostname
 
-def synchronize_time(connector: SSHConnector, realm:str):
+
+def synchronize_time(connector: SSHConnector, realm: str) -> None:
+    """
+    synchronizes the time on the machine pointed by connector with the machine on realm
+
+    Args:
+        connector: A connector.
+        realm: The realm
+    """
     connector.logger.info(f"synchronizing the time with the server")
 
     command = f"ntpdate -u {realm.lower()} &>/dev/null && echo 1 || echo 0"
-    print(command)
     output = connector.sudo_run(command)
     _ = output.read().decode().strip()
     if output.read().decode().strip() == "0":
@@ -104,6 +150,16 @@ def synchronize_time(connector: SSHConnector, realm:str):
 
 
 def kerberos_configuration(connector: SSHConnector, realm: str) -> None:
+    """
+    Creates the krb5.conf file on the machine pointed by connector
+
+    Args:
+        connector: A connector
+        realm: the realm
+
+    Returns:
+
+    """
     connector.logger.info(f"Setting kerberos configuration")
 
     connector.sudo_run("cp /etc/krb5.conf /etc/krb5.conf.bak")
@@ -136,41 +192,48 @@ def kerberos_configuration(connector: SSHConnector, realm: str) -> None:
     admin_server = FILE=/var/log/kadm5.log
 """
 
-#     config = ConfigRaw(connector, "/etc/krb5.conf", create=True, backup=True)
-#     config.data = f"""[libdefaults]
-# 	default_realm = {realm.upper()}
-# 	dns_lookup_realm = false
-# 	dns_lookup_kdc = true
-#
-# [plugins]
-#        localauth = {{
-#              module = winbind:/usr/lib64/samba/krb5/winbind_krb5_localauth.so
-#              enable_only = winbind
-#        }}
-#
-# [global]
-#       krb5_auth = yes
-#       krb5_ccache_type = FILE
-#     """
 
+def samba_configuration(connector: SSHConnector) -> None:
+    """
+    Backups the samba configuration
 
-def samba_configuration(connector: SSHConnector, realm: str) -> None:
+    Args:
+        connector: A connector
+    """
     connector.logger.info(f"Setting samba configuration")
     connector.sudo_run("mv /etc/samba/smb.conf /etc/samba/smb.conf.bak")
 
-def join_ad(connector: SSHConnector, realm: str, password: str, secondary:bool=False) -> None:
+
+def join_ad(connector: SSHConnector, realm: str, password: str, secondary: bool = False) -> None:
+    """
+    Joins the AD
+
+    Args:
+        connector: A connector
+        realm: the realm
+        password: password for Administrator of AD
+        secondary: Is the machine pointed by the connector a DC or MEMBER
+    """
     connector.logger.info(f"Joining Active Directory")
 
     membership = "MEMBER"
     if secondary:
         membership = "DC"
 
-    command = (f"samba-tool domain join {realm} {membership} -U Administrator --password='{password}' &>/dev/null && echo 1 || echo 0")
+    command = (
+        f"samba-tool domain join {realm} {membership} -U Administrator --password='{password}' &>/dev/null && echo 1 || echo 0")
     output = connector.sudo_run(command)
     if output.read().decode().strip() == "0":
         raise Exception("Cannot join AD")
 
+
 def restart_services(connector: SSHConnector):
+    """
+    Restarts the winbind service
+
+    Args:
+        connector: A connector
+    """
     connector.logger.info(f"Restarting services")
     command = "sudo systemctl restart smbd nmbd winbind"
     output = connector.sudo_run(command)
@@ -183,15 +246,32 @@ def restart_services(connector: SSHConnector):
         except Exception as e:
             connector.logger.warning(e)
 
+
 def test_join_as_member(connector: SSHConnector):
-    connector.logger.info(f"Testing the join as a member")
+    """
+    Tests if the machine pointed by the connector did join as a MEMBER or not. Prints `wbinfo --ping-dc`s output
+
+    Args:
+        connector: A connector
+    """
+    connector.logger.info(f"Testing the join as a MEMBER")
 
     command = "wbinfo --ping-dc"
     output = connector.sudo_run(command)
     connector.logger.info(output.read().decode())
 
-def test_join_as_server(connector: SSHConnector, realm:str, ad_admin_password: str):
-    connector.logger.info(f"Testing the join as a secondary")
+
+def test_join_as_server(connector: SSHConnector, realm: str, ad_admin_password: str):
+    """
+    Tests if the machine pointed by the connector did join as a DC or not.
+    Prints `samba-tool user list` and `ldapsearch ***`s output
+
+    Args:
+        connector: A connector
+        realm: the realm
+        ad_admin_password: AD's administrator password
+    """
+    connector.logger.info(f"Testing the join as a DC")
 
     command = "samba-tool user list"
     output = connector.sudo_run(command)
@@ -202,19 +282,37 @@ def test_join_as_server(connector: SSHConnector, realm:str, ad_admin_password: s
     output2 = connector.sudo_run(command2)
     connector.logger.info(output2.read().decode())
 
+
 def remove_secrets(connector: SSHConnector):
+    """
+    Removes secret files in samba private. Connecting as a DC after demoting as a MEMBER would result on an error.
+    So this files must be checked and removed if trying to connect as a DC
+
+    Args:
+        connector: A connector
+    """
     connector.logger.info("Removing secrets")
     connector.sudo_run("rm -f /var/lib/samba/private/secrets.ldb")
     connector.sudo_run("rm -f /var/lib/samba/private/secrets.tdb")
 
 
 def join(connector: SSHConnector, realm: str, hostname: str, ad_admin_password: str, secondary: bool = False) -> None:
+    """
+    Runs a needed functions to join  an AD either as a MEMBER or DC
+
+    Args:
+        connector: A connector
+        realm: the realm
+        hostname: hostname of the machine pointed by the connector
+        ad_admin_password: AD's administrator password
+        secondary: is the machine pointed by connector a DC, otherwise it's a MEMBER
+    """
     install_samba(connector)
     ensure_realm(connector, realm)
     _ = set_hostname(connector, hostname, force=True)
     synchronize_time(connector, realm)
     kerberos_configuration(connector, realm)
-    samba_configuration(connector, realm)
+    samba_configuration(connector)
 
     if secondary:
         remove_secrets(connector)
@@ -228,8 +326,20 @@ def join(connector: SSHConnector, realm: str, hostname: str, ad_admin_password: 
     else:
         test_join_as_member(connector)
 
-def leave(connector: SSHConnector, password: str, uninstall: bool):
-    command = f"samba-tool domain demote -UAdministrator --password='{password} &>/dev/null && echo 1 || echo 0"
+
+def leave(connector: SSHConnector, ad_admin_password: str, uninstall: bool):
+    """
+    Demotes the machine pointed by the connector.
+
+    Args:
+        connector: A connector
+        ad_admin_password: AD's administrator password
+        uninstall: Uninstall the packages installed by join. Otherwise, leave them
+
+    Returns:
+
+    """
+    command = f"samba-tool domain demote -UAdministrator --password='{ad_admin_password} &>/dev/null && echo 1 || echo 0"
     output = connector.sudo_run(command)
     if output.read().decode().strip() == "0":
         raise Exception("Cannot leave domain")
@@ -237,6 +347,7 @@ def leave(connector: SSHConnector, password: str, uninstall: bool):
     disable_services(connector)
     if uninstall:
         purge_samba(connector)
+
 
 def main():
     parser = argparse.ArgumentParser(description="Package manager CLI with install and uninstall commands.")
@@ -257,7 +368,7 @@ def main():
     local_leave_parser.add_argument("passwd", type=str, help="Password of current user (must be sudo)")
     local_leave_parser.add_argument("adAdminPassword", type=str, help="The Admin password of the Active Directory")
     local_leave_parser.add_argument("--uninstall", "-u", action="store_true", default=False,
-                                     help="Also uninstall packages installed by join")
+                                    help="Also uninstall packages installed by join")
 
     remote_parser = subparsers.add_parser("remote", help="Remote operations")
     remote_subparsers = remote_parser.add_subparsers(dest='action', required=True)
@@ -271,7 +382,8 @@ def main():
     remote_join_parser.add_argument("adAdminPassword", type=str, help="The Admin password of the Active Directory")
     remote_join_parser.add_argument("realm", type=str, help="The realm that samba is going to join.")
     remote_join_parser.add_argument("hostname", type=str, help="The hostname of the samba machine that going to join")
-    remote_join_parser.add_argument("--server", "-s", action="store_true", help="Join as member server/secondary domain")
+    remote_join_parser.add_argument("--server", "-s", action="store_true",
+                                    help="Join as member server/secondary domain")
 
     remote_leave_parser.add_argument("address", type=str, help="Address of samba server")
     remote_leave_parser.add_argument("port", type=int, help="Port of samba server")
@@ -296,6 +408,7 @@ def main():
         leave(connector, args.adAdminPassword, args.uninstall)
     else:
         raise ValueError("Unknown Operation")
+
 
 if __name__ == "__main__":
     main()
