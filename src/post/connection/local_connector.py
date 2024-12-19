@@ -1,6 +1,6 @@
 import subprocess
 from logging import Logger
-from typing import Optional, Union, List
+from typing import Optional
 
 from post.connection.model_connector import ModelConnector
 from post.utils.common import GLOBAL_LOGGER
@@ -14,6 +14,7 @@ class LocalChannelFile:
     def read(self):
         return self.text.encode('utf-8')
 
+
 class LocalConnector(ModelConnector):
     """
     A LocalConnector.
@@ -23,6 +24,7 @@ class LocalConnector(ModelConnector):
         passwd (str): The password to use.
         logger (Logger, optional): The logger to log. Defaults to None.
     """
+
     def __init__(self, passwd: str, logger: Optional[Logger] = None):
         """
         Constructs a LocalConnector object
@@ -38,8 +40,10 @@ class LocalConnector(ModelConnector):
 
         self.passwd = passwd
 
+    def __str__(self):
+        return f"{self.__class__.__name__}()"
 
-    def run(self,  command: str, passwd: Optional[str] = None) -> LocalChannelFile:
+    def run(self, command: str) -> LocalChannelFile:
         """
         Runs a command with user privileges
 
@@ -58,12 +62,10 @@ class LocalConnector(ModelConnector):
                 stderr=subprocess.PIPE,
             )
             return LocalChannelFile(result.stdout.decode())
-        except FileNotFoundError as e:
+        except FileNotFoundError as _:
             raise CommandError("Command not found")
         except Exception as e:
             raise ValueError(f"An error occurred: {e}")
-
-
 
     def sudo_run(self, command: str, passwd: Optional[str] = None) -> LocalChannelFile:
         """
@@ -93,7 +95,7 @@ class LocalConnector(ModelConnector):
                 stderr=subprocess.PIPE,
             )
             return LocalChannelFile(result.stdout.decode())
-        except FileNotFoundError as e:
+        except FileNotFoundError as _:
             raise CommandError("Command not found")
         except Exception as e:
             raise ValueError(f"An error occurred: {e}")

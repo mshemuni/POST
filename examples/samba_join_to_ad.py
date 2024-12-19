@@ -1,8 +1,38 @@
+import json
+from logging import basicConfig, getLogger, DEBUG, FileHandler, Formatter
+from time import time
+
 from post import Apt, SSHConnector, ConfigRaw, Service, LocalConnector
 from post.utils.error import NotFound
+from flask import Flask, jsonify, request
 
 import argparse
 
+app = Flask(__name__)
+
+def to_lower(text: str):
+    return text.lower()
+
+def to_upper(text: str):
+    return text.upper()
+
+def create_logger():
+    """Create a logger with a file named using the current Unix timestamp."""
+    unix_time = int(time())
+    log_filename = f"post_logger_{unix_time}.log"
+
+    logger = getLogger(str(unix_time))
+    logger.setLevel(DEBUG)
+
+    file_handler = FileHandler(log_filename)
+    file_handler.setLevel(DEBUG)
+
+    formatter = Formatter("[%(asctime)s, %(levelname)s], [%(filename)s, %(funcName)s, %(lineno)s]: %(message)s")
+    file_handler.setFormatter(formatter)
+
+    logger.addHandler(file_handler)
+
+    return logger, log_filename
 
 def purge_samba(connector: SSHConnector) -> None:
     """
@@ -141,7 +171,7 @@ def synchronize_time(connector: SSHConnector, realm: str) -> None:
     """
     connector.logger.info(f"synchronizing the time with the server")
 
-    command = f"ntpdate -u {realm.lower()} &>/dev/null && echo 1 || echo 0"
+    command = f"ntpdate -u {to_lower(realm)} &>/dev/null && echo 1 || echo 0"
     output = connector.sudo_run(command)
     _ = output.read().decode().strip()
     if output.read().decode().strip() == "0":
@@ -169,7 +199,7 @@ def kerberos_configuration(connector: SSHConnector, realm: str) -> None:
 
     config = ConfigRaw(connector, "/etc/krb5.conf", create=True, backup=True)
     config.data = f"""[libdefaults]
-    default_realm = {realm.upper()}
+    default_realm = {to_upper(realm)}
     default_tkt_enctypes = des3-hmac-sha1 des-cbc-crc
     default_tgs_enctypes = des3-hmac-sha1 des-cbc-crc
     dns_lookup_kdc = true
@@ -177,15 +207,15 @@ def kerberos_configuration(connector: SSHConnector, realm: str) -> None:
 
 [realms]
     NIAEI.PRD = {{
-        kdc = {server_s_name.lower()}
-        admin_server = {server_s_name.lower()}
-        master_kdc = {server_s_name.lower()}
-        default_domain = {realm.lower()}
+        kdc = {to_lower(server_s_name)}
+        admin_server = {to_lower(server_s_name)}
+        master_kdc = {to_lower(server_s_name)}
+        default_domain = {to_lower(realm)}
     }}
 
 [domain_realm]
-    .mit.edu = {realm.upper()}
-    mit.edu = {realm.upper()}
+    .{to_lower(realm)} = {to_upper(realm)}
+    {to_lower(realm)} = {to_upper(realm)}
 
 [logging]
     kdc = SYSLOG:DEBUG
@@ -278,7 +308,7 @@ def test_join_as_server(connector: SSHConnector, realm: str, ad_admin_password: 
     connector.logger.info(output.read().decode())
 
     dash_b = ",".join([f"dc={each}" for each in realm.split(".")])
-    command2 = f"ldapsearch -H ldap://{realm.lower()} -D 'administrator@{realm.lower()}' -w {ad_admin_password} -b '{dash_b}' '(objectClass=user)'"
+    command2 = f"ldapsearch -H ldap://{to_lower(realm)} -D 'administrator@{to_lower(realm)}' -w {ad_admin_password} -b '{dash_b}' '(objectClass=user)'"
     output2 = connector.sudo_run(command2)
     connector.logger.info(output2.read().decode())
 
@@ -294,6 +324,84 @@ def remove_secrets(connector: SSHConnector):
     connector.logger.info("Removing secrets")
     connector.sudo_run("rm -f /var/lib/samba/private/secrets.ldb")
     connector.sudo_run("rm -f /var/lib/samba/private/secrets.tdb")
+
+@app.route('/', methods=['POST', 'DELETE'])
+def serve():
+    logger, logger_file = create_logger()
+
+    data = request.get_json()
+    logger.info(json.dumps(data))
+    run_mode = data.get("run_mode", None)
+
+    if run_mode is None:
+        logger.error("Run mode is required")
+        return jsonify({"status": "error", "message": "Run mode is required"}), 400
+
+    passwd = data.get("passwd", None)
+
+    if run_mode.lower() == "local":
+        if passwd is None:
+            logger.error("passwd is required")
+            return jsonify({"status": "error", "message": "passwd is required"}), 400
+
+        connector = LocalConnector(passwd, logger=logger)
+
+    elif run_mode.lower() == "remote":
+        address = data.get("address", None)
+        port = data.get("port", 22)
+        user = data.get("user", None)
+
+        if address is None:
+            logger.error("address is required since run mode is remote")
+            return jsonify({"status": "error", "message": "address is required since run mode is remote"}), 400
+
+        if user is None:
+            logger.error("user is required since run mode is remote")
+            return jsonify({"status": "error", "message": "user is required since run mode is remote"}), 400
+
+        if passwd is None:
+            logger.error("passwd is required")
+            return jsonify({"status": "error", "message": "passwd is required"}), 400
+
+        connector = SSHConnector(address, port, user, passwd, logger=logger)
+    else:
+        logger.error("Run mode must be either local or remote")
+        return jsonify({"status": "error", "message": "Run mode must be either local or remote"}), 400
+
+    ad_admin_password = data.get("adAdminPassword", None)
+
+    if request.method == 'POST':
+        realm = data.get("realm", None)
+        hostname = data.get("hostname", None)
+        server = data.get("server", False)
+
+        if realm is None:
+            logger.error("realm is required to join")
+            return jsonify({"status": "error", "message": "realm is required"}), 400
+
+        if hostname is None:
+            logger.error("hostname is required to join")
+            return jsonify({"status": "error", "message": "hostname is required"}), 400
+
+        if passwd is None:
+            logger.error("AD's Administrator password is required to join")
+            return jsonify({"status": "error", "message": "AD's Administrator password is required"}), 400
+
+        join(connector, realm, hostname, ad_admin_password, server)
+        return jsonify({"status": "success", "message": "Joining started", "logger": f"{logger_file}"}), 200
+
+    elif request.method == 'DELETE':
+        uninstall = data.get("uninstall", False)
+
+        if passwd is None:
+            logger.error("AD's Administrator password is required to leave")
+            return jsonify({"error": "AD's Administrator password is required"}), 400
+
+        leave(connector, ad_admin_password, uninstall)
+        return jsonify({"status": "success", "message": "Demoting started", "logger": f"{logger_file}"}), 200
+
+    logger.warning("Nothing to do")
+    return jsonify({"status": "error", "message": "Nothing to do"}), 200
 
 
 def join(connector: SSHConnector, realm: str, hostname: str, ad_admin_password: str, secondary: bool = False) -> None:
@@ -393,12 +501,17 @@ def main():
     remote_leave_parser.add_argument("--uninstall", "-u", action="store_true", default=False,
                                      help="Also uninstall packages installed by join")
 
+    subparsers.add_parser("serve", help="Remote operations")
+
     args = parser.parse_args()
 
     if args.command.lower() == "local":
         connector = LocalConnector(args.passwd)
     elif args.command.lower() == "remote":
         connector = SSHConnector(args.address, args.port, args.user, args.passwd)
+    elif args.command.lower() == "serve":
+        app.run(debug=True)
+        return
     else:
         raise ValueError("Unknown host")
 
