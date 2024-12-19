@@ -29,7 +29,7 @@ def to_lower(text: str) -> str:
 def to_upper(text: str) -> str:
     return text.upper()
 
-def create_logger() -> Tuple[Logger, str]:
+def create_logger() -> Tuple[Logger, Path]:
     """Create a logger with a file named using the current Unix timestamp."""
     unix_time = int(time())
     directory = Path("./logs/")

@@ -5,6 +5,7 @@ pyqt6==6.7.1
 pyqtdarktheme
 pyyaml
 flask
+flasgger
 
 pytest
 pytest-cov
