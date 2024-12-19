@@ -1,15 +1,27 @@
 import json
 from logging import getLogger, DEBUG, FileHandler, Formatter, Logger
+from pathlib import Path
 from time import time
 from typing import Tuple
 
 from post import Apt, SSHConnector, ConfigRaw, Service, LocalConnector
 from post.utils.error import NotFound
+
 from flask import Flask, jsonify, request, Response
+from flasgger import Swagger
 
 import argparse
 
 app = Flask(__name__)
+
+app.config['SWAGGER'] = {
+    'title': 'Pardus Orchestration SysTem',
+    'uiversion': 3,
+    'description': 'POST (Pardus Orchestration SysTem) is a python package used for orchestrate a low level system fleet.<br><a href="https://github.com/mshemuni/POST/">https://github.com/mshemuni/POST/</a>',
+    'version': '0.0.1B',
+    'tos': 'asd'
+}
+swagger = Swagger(app)
 
 def to_lower(text: str) -> str:
     return text.lower()
@@ -20,7 +32,12 @@ def to_upper(text: str) -> str:
 def create_logger() -> Tuple[Logger, str]:
     """Create a logger with a file named using the current Unix timestamp."""
     unix_time = int(time())
-    log_filename = f"post_logger_{unix_time}.log"
+    directory = Path("./logs/")
+
+    if not directory.exists():
+        directory.mkdir()
+
+    log_filename = directory / f"post_logger_{unix_time}.log"
 
     logger = getLogger(str(unix_time))
     logger.setLevel(DEBUG)
@@ -326,8 +343,37 @@ def remove_secrets(connector: SSHConnector):
     connector.sudo_run("rm -f /var/lib/samba/private/secrets.ldb")
     connector.sudo_run("rm -f /var/lib/samba/private/secrets.tdb")
 
-@app.route('/', methods=['POST', 'DELETE'])
+@app.route('/', methods=['DELETE', 'POST'])
 def serve() -> Tuple[Response, int]:
+    """
+        Join a samba to and AD either as MEMBER or DC or demote the member
+        ---
+        tags:
+          - All
+        post:
+          description: Join a Pardus Machine to an AD.
+          parameters:
+            - data: json
+              in: body
+              type: string
+              required: true
+              example: '{"run_mode": "remote", "address": "192.168.1.1", "port": 22, "user": "pardus", "passwd": "password", "uninstall": true}'
+          responses:
+            200:
+              description: Joined
+        delete:
+          description: Demotes the Pardus Machine from an AD
+          parameters:
+            - data: json
+              in: body
+              type: string
+              required: true
+              example: '{"run_mode": "remote", "address": "192.168.1.1", "port": 22, "user": "pardus", "passwd": "password", "uninstall": true}'
+          responses:
+            200:
+              description: Demotes the machine
+        """
+
     logger, logger_file = create_logger()
 
     data = request.get_json()
