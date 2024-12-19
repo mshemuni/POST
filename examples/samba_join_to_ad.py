@@ -1,22 +1,23 @@
 import json
-from logging import basicConfig, getLogger, DEBUG, FileHandler, Formatter
+from logging import getLogger, DEBUG, FileHandler, Formatter, Logger
 from time import time
+from typing import Tuple
 
 from post import Apt, SSHConnector, ConfigRaw, Service, LocalConnector
 from post.utils.error import NotFound
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, Response
 
 import argparse
 
 app = Flask(__name__)
 
-def to_lower(text: str):
+def to_lower(text: str) -> str:
     return text.lower()
 
-def to_upper(text: str):
+def to_upper(text: str) -> str:
     return text.upper()
 
-def create_logger():
+def create_logger() -> Tuple[Logger, str]:
     """Create a logger with a file named using the current Unix timestamp."""
     unix_time = int(time())
     log_filename = f"post_logger_{unix_time}.log"
@@ -326,7 +327,7 @@ def remove_secrets(connector: SSHConnector):
     connector.sudo_run("rm -f /var/lib/samba/private/secrets.tdb")
 
 @app.route('/', methods=['POST', 'DELETE'])
-def serve():
+def serve() -> Tuple[Response, int]:
     logger, logger_file = create_logger()
 
     data = request.get_json()
@@ -386,8 +387,12 @@ def serve():
         if passwd is None:
             logger.error("AD's Administrator password is required to join")
             return jsonify({"status": "error", "message": "AD's Administrator password is required"}), 400
+        try:
+            join(connector, realm, hostname, ad_admin_password, server)
+        except Exception as e:
+            logger.error(e)
+            return jsonify({"status": "error", "message": "e"}), 400
 
-        join(connector, realm, hostname, ad_admin_password, server)
         return jsonify({"status": "success", "message": "Joining started", "logger": f"{logger_file}"}), 200
 
     elif request.method == 'DELETE':
@@ -396,8 +401,12 @@ def serve():
         if passwd is None:
             logger.error("AD's Administrator password is required to leave")
             return jsonify({"error": "AD's Administrator password is required"}), 400
+        try:
+            leave(connector, ad_admin_password, uninstall)
+        except Exception as e:
+            logger.error(e)
+            return jsonify({"status": "error", "message": "e"}), 400
 
-        leave(connector, ad_admin_password, uninstall)
         return jsonify({"status": "success", "message": "Demoting started", "logger": f"{logger_file}"}), 200
 
     logger.warning("Nothing to do")
@@ -501,7 +510,7 @@ def main():
     remote_leave_parser.add_argument("--uninstall", "-u", action="store_true", default=False,
                                      help="Also uninstall packages installed by join")
 
-    subparsers.add_parser("serve", help="Remote operations")
+    subparsers.add_parser("serve", help="Run a server")
 
     args = parser.parse_args()
 
