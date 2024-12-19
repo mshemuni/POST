@@ -12,12 +12,13 @@ from flasgger import Swagger
 
 import argparse
 
-app = Flask(__name__)
+app = Flask("POST")
 
 app.config['SWAGGER'] = {
     'title': 'Pardus Orchestration SysTem',
     'uiversion': 3,
-    'description': 'POST (Pardus Orchestration SysTem) is a python package used for orchestrate a low level system fleet.<br><a href="https://github.com/mshemuni/POST/">https://github.com/mshemuni/POST/</a>',
+    'description': 'POST (Pardus Orchestration SysTem) is a python package used for orchestrate a low level system fleet.'
+                   '<br><a href="https://github.com/mshemuni/POST/">https://github.com/mshemuni/POST/</a>',
     'version': '0.0.1B',
     'tos': 'asd'
 }
@@ -556,7 +557,8 @@ def main():
     remote_leave_parser.add_argument("--uninstall", "-u", action="store_true", default=False,
                                      help="Also uninstall packages installed by join")
 
-    subparsers.add_parser("serve", help="Run a server")
+    server_parser = subparsers.add_parser("serve", help="Run a server")
+    server_parser.add_argument("--port", type=int, default=5000, help="A port for flask server")
 
     args = parser.parse_args()
 
@@ -565,7 +567,7 @@ def main():
     elif args.command.lower() == "remote":
         connector = SSHConnector(args.address, args.port, args.user, args.passwd)
     elif args.command.lower() == "serve":
-        app.run(debug=True)
+        app.run(debug=True, port=args.port)
         return
     else:
         raise ValueError("Unknown host")
