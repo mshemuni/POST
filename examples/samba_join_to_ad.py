@@ -1,46 +1,46 @@
 import json
+import threading
 from logging import getLogger, DEBUG, FileHandler, Formatter, Logger
 from pathlib import Path
-from time import time
+from collections import deque
 from typing import Tuple
+
+import uuid
 
 from post import Apt, SSHConnector, ConfigRaw, Service, LocalConnector
 from post.utils.error import NotFound
 
 from flask import Flask, jsonify, request, Response
-from flasgger import Swagger
 
 import argparse
 
 app = Flask("POST")
 
-app.config['SWAGGER'] = {
-    'title': 'Pardus Orchestration SysTem',
-    'uiversion': 3,
-    'description': 'POST (Pardus Orchestration SysTem) is a python package used for orchestrate a low level system fleet.'
-                   '<br><a href="https://github.com/mshemuni/POST/">https://github.com/mshemuni/POST/</a>',
-    'version': '0.0.1B',
-    'tos': 'asd'
-}
-swagger = Swagger(app)
 
 def to_lower(text: str) -> str:
     return text.lower()
 
+
 def to_upper(text: str) -> str:
     return text.upper()
 
-def create_logger() -> Tuple[Logger, Path]:
+
+def read_log(file_path, n=30):
+    with open(file_path, 'r') as file:
+        return list(map(str.strip, deque(file, maxlen=n)))
+
+
+def create_logger() -> Tuple[Logger, Path, str]:
     """Create a logger with a file named using the current Unix timestamp."""
-    unix_time = int(time())
+    unique_id = uuid.uuid4().hex
     directory = Path("./logs/")
 
     if not directory.exists():
         directory.mkdir()
 
-    log_filename = directory / f"post_logger_{unix_time}.log"
+    log_filename = directory / f"post_logger_{unique_id}.log"
 
-    logger = getLogger(str(unix_time))
+    logger = getLogger(str(unique_id))
     logger.setLevel(DEBUG)
 
     file_handler = FileHandler(log_filename)
@@ -51,7 +51,8 @@ def create_logger() -> Tuple[Logger, Path]:
 
     logger.addHandler(file_handler)
 
-    return logger, log_filename
+    return logger, log_filename, unique_id
+
 
 def purge_samba(connector: SSHConnector) -> None:
     """
@@ -81,22 +82,22 @@ def purge_samba(connector: SSHConnector) -> None:
     apt.auto_remove()
 
 
-def disable_services(connector: SSHConnector) -> None:
-    """
-    Disables services enabled by joining
-
-    Args:
-        connector:  A connector.
-    """
-    connector.logger.info(f"Restarting services")
-    services = ["winbind"]
-    service = Service(connector)
-    for serv in services:
-        try:
-            service.stop(serv)
-            service.disable(serv)
-        except Exception as e:
-            connector.logger.warning(e)
+# def disable_services(connector: SSHConnector) -> None:
+#     """
+#     Disables services enabled by joining
+#
+#     Args:
+#         connector:  A connector.
+#     """
+#     connector.logger.info(f"Disabling services")
+#     services = []
+#     service = Service(connector)
+#     for serv in services:
+#         try:
+#             service.stop(serv)
+#             service.disable(serv)
+#         except Exception as e:
+#             connector.logger.warning(e)
 
 
 def install_samba(connector: SSHConnector) -> None:
@@ -190,7 +191,11 @@ def synchronize_time(connector: SSHConnector, realm: str) -> None:
     """
     connector.logger.info(f"synchronizing the time with the server")
 
+    # Service().disable("systemd-timesyncd")
+    connector.sudo_run("systemctl stop systemd-timesyncd")
+
     command = f"ntpdate -u {to_lower(realm)} &>/dev/null && echo 1 || echo 0"
+    # /etc/systemd/timesyncd.conf systemd-timesyncd
     output = connector.sudo_run(command)
     _ = output.read().decode().strip()
     if output.read().decode().strip() == "0":
@@ -213,22 +218,17 @@ def kerberos_configuration(connector: SSHConnector, realm: str) -> None:
 
     connector.sudo_run("cp /etc/krb5.conf /etc/krb5.conf.bak")
 
-    server_s_name_command = connector.sudo_run(f"samba-tool domain info {realm}|grep 'DC name'|cut -d':' -f2")
-    server_s_name = server_s_name_command.read().decode().strip().lower()
-
     config = ConfigRaw(connector, "/etc/krb5.conf", create=True, backup=True)
     config.data = f"""[libdefaults]
     default_realm = {to_upper(realm)}
-    default_tkt_enctypes = des3-hmac-sha1 des-cbc-crc
-    default_tgs_enctypes = des3-hmac-sha1 des-cbc-crc
     dns_lookup_kdc = true
-    dns_lookup_realm = false
+    dns_lookup_realm = true
 
 [realms]
-    NIAEI.PRD = {{
-        kdc = {to_lower(server_s_name)}
-        admin_server = {to_lower(server_s_name)}
-        master_kdc = {to_lower(server_s_name)}
+    {to_upper(realm)} = {{
+        kdc = {to_lower(realm)}
+        admin_server = {to_lower(realm)}
+        master_kdc = {to_lower(realm)}
         default_domain = {to_lower(realm)}
     }}
 
@@ -271,41 +271,42 @@ def join_ad(connector: SSHConnector, realm: str, password: str, secondary: bool 
 
     command = (
         f"samba-tool domain join {realm} {membership} -U Administrator --password='{password}' &>/dev/null && echo 1 || echo 0")
+
     output = connector.sudo_run(command)
     if output.read().decode().strip() == "0":
+        connector.logger.error(f"Cannot join AD")
         raise Exception("Cannot join AD")
 
 
-def restart_services(connector: SSHConnector):
+def disable_services(connector: SSHConnector):
     """
-    Restarts the winbind service
+    Disabling services
 
     Args:
         connector: A connector
     """
-    connector.logger.info(f"Restarting services")
-    command = "sudo systemctl restart smbd nmbd winbind"
-    output = connector.sudo_run(command)
-    connector.logger.info(output.read().decode())
-    services = ["winbind"]
+
     service = Service(connector)
-    for serv in services:
+
+    services_to_disable = ["nmbd", "smbd", "winbind"]
+    for serv in services_to_disable:
         try:
-            service.restart(serv)
+            service.stop(serv)
+            service.disable(serv)
         except Exception as e:
-            connector.logger.warning(e)
+            connector.logger.info(e)
 
 
 def test_join_as_member(connector: SSHConnector):
     """
-    Tests if the machine pointed by the connector did join as a MEMBER or not. Prints `wbinfo --ping-dc`s output
+    Tests if the machine pointed by the connector did join as a MEMBER or not. Prints `samba-tool user list`s output
 
     Args:
         connector: A connector
     """
     connector.logger.info(f"Testing the join as a MEMBER")
 
-    command = "wbinfo --ping-dc"
+    command = "samba-tool user list"
     output = connector.sudo_run(command)
     connector.logger.info(output.read().decode())
 
@@ -344,7 +345,8 @@ def remove_secrets(connector: SSHConnector):
     connector.sudo_run("rm -f /var/lib/samba/private/secrets.ldb")
     connector.sudo_run("rm -f /var/lib/samba/private/secrets.tdb")
 
-@app.route('/', methods=['DELETE', 'POST'])
+
+@app.route('/', methods=['DELETE', 'POST', 'GET'])
 def serve() -> Tuple[Response, int]:
     """
         Join a samba to and AD either as MEMBER or DC or demote the member
@@ -373,9 +375,33 @@ def serve() -> Tuple[Response, int]:
           responses:
             200:
               description: Demotes the machine
+        get:
+          description: Get the status of job
+          parameters:
+            - unique_id: str
+              in: url
+              type: string
+              required: true
+              example: 'asdjbalkjdlıjkh'
+          responses:
+            200:
+              description: Returns the status of the job
         """
 
-    logger, logger_file = create_logger()
+    if request.method == 'GET':
+        unique_id = request.args.get('unique_id')
+        if unique_id is None:
+            return jsonify({"status": "error", "message": "unique_id is required"}), 400
+
+        try:
+            logs = read_log(f"logs/post_logger_{unique_id}.log")
+            return jsonify({"status": "success", "message": logs}), 200
+        except FileNotFoundError as _:
+            return jsonify({"status": "error", "message": "No such process"}), 404
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 400
+
+    logger, logger_file, unique_id = create_logger()
 
     data = request.get_json()
     logger.info(json.dumps(data))
@@ -386,13 +412,18 @@ def serve() -> Tuple[Response, int]:
         return jsonify({"status": "error", "message": "Run mode is required"}), 400
 
     passwd = data.get("passwd", None)
+    if passwd is None:
+        logger.error("passwd is required")
+        return jsonify({"status": "error", "message": "passwd is required (This must be sudo-able)"}), 400
 
     if run_mode.lower() == "local":
-        if passwd is None:
-            logger.error("passwd is required")
-            return jsonify({"status": "error", "message": "passwd is required"}), 400
 
-        connector = LocalConnector(passwd, logger=logger)
+        try:
+            connector = LocalConnector(passwd, logger=logger)
+        except Exception as e:
+            logger.error(e)
+            return jsonify({"status": "error", "message": str(e)}), 400
+
 
     elif run_mode.lower() == "remote":
         address = data.get("address", None)
@@ -407,16 +438,20 @@ def serve() -> Tuple[Response, int]:
             logger.error("user is required since run mode is remote")
             return jsonify({"status": "error", "message": "user is required since run mode is remote"}), 400
 
-        if passwd is None:
-            logger.error("passwd is required")
-            return jsonify({"status": "error", "message": "passwd is required"}), 400
-
-        connector = SSHConnector(address, port, user, passwd, logger=logger)
+        try:
+            connector = SSHConnector(address, port, user, passwd, logger=logger)
+        except Exception as e:
+            logger.error(e)
+            return jsonify({"status": "error", "message": str(e)}), 400
     else:
         logger.error("Run mode must be either local or remote")
         return jsonify({"status": "error", "message": "Run mode must be either local or remote"}), 400
 
     ad_admin_password = data.get("adAdminPassword", None)
+
+    if ad_admin_password is None:
+        logger.error("AD's admin password is required")
+        return jsonify({"status": "error", "message": "AD's admin password is required"}), 400
 
     if request.method == 'POST':
         realm = data.get("realm", None)
@@ -435,26 +470,27 @@ def serve() -> Tuple[Response, int]:
             logger.error("AD's Administrator password is required to join")
             return jsonify({"status": "error", "message": "AD's Administrator password is required"}), 400
         try:
-            join(connector, realm, hostname, ad_admin_password, server)
+            thread = threading.Thread(target=join, args=(connector, realm, hostname, ad_admin_password, server))
+            thread.start()
+            # join(connector, realm, hostname, ad_admin_password, server)
+
+            return jsonify({"status": "success", "message": "Joining started", "pid": f"{unique_id}"}), 200
         except Exception as e:
             logger.error(e)
-            return jsonify({"status": "error", "message": "e"}), 400
-
-        return jsonify({"status": "success", "message": "Joining started", "logger": f"{logger_file}"}), 200
+            return jsonify({"status": "error", "message": str(e)}), 400
 
     elif request.method == 'DELETE':
         uninstall = data.get("uninstall", False)
 
-        if passwd is None:
-            logger.error("AD's Administrator password is required to leave")
-            return jsonify({"error": "AD's Administrator password is required"}), 400
         try:
-            leave(connector, ad_admin_password, uninstall)
+            thread = threading.Thread(target=leave, args=(connector, ad_admin_password, uninstall))
+            thread.start()
+            # leave(connector, ad_admin_password, uninstall)
+
+            return jsonify({"status": "success", "message": "Demoting started", "pid": f"{unique_id}"}), 200
         except Exception as e:
             logger.error(e)
-            return jsonify({"status": "error", "message": "e"}), 400
-
-        return jsonify({"status": "success", "message": "Demoting started", "logger": f"{logger_file}"}), 200
+            return jsonify({"status": "error", "message": str(e)}), 400
 
     logger.warning("Nothing to do")
     return jsonify({"status": "error", "message": "Nothing to do"}), 200
@@ -482,16 +518,15 @@ def join(connector: SSHConnector, realm: str, hostname: str, ad_admin_password: 
         remove_secrets(connector)
 
     join_ad(connector, realm, ad_admin_password, secondary=secondary)
-    restart_services(connector)
+    disable_services(connector)
 
     if secondary:
         test_join_as_server(connector, realm, ad_admin_password)
-
     else:
         test_join_as_member(connector)
 
 
-def leave(connector: SSHConnector, ad_admin_password: str, uninstall: bool):
+def leave(connector: SSHConnector, ad_admin_password: str, uninstall: bool = False):
     """
     Demotes the machine pointed by the connector.
 
@@ -508,7 +543,7 @@ def leave(connector: SSHConnector, ad_admin_password: str, uninstall: bool):
     if output.read().decode().strip() == "0":
         raise Exception("Cannot leave domain")
 
-    disable_services(connector)
+    # disable_services(connector)
     if uninstall:
         purge_samba(connector)
 

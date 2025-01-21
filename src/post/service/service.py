@@ -233,10 +233,6 @@ class Service(ModelService):
 
         return stdout.read().decode().strip().splitlines()
 
-    def daemon_reload(self, service: str) -> None:
-        self.check(service)
-
-        escape_string(service)
-
+    def daemon_reload(self) -> None:
         stdout = self.connector.sudo_run("sudo systemctl daemon-reload", passwd=self.sudo_passwd)
         _ = stdout.read().decode().strip().splitlines()

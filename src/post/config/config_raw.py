@@ -24,16 +24,8 @@ class ConfigRaw:
         logger (Logger, optional): The logger to log. Defaults to None.
     """
 
-    def __init__(
-        self,
-        connector: ModelConnector,
-        path: Union[str, Path],
-        create: bool = False,
-        backup: bool = False,
-        force: bool = False,
-        sudo_passwd: Optional[str] = None,
-        logger: Optional[Logger] = None,
-    ) -> None:
+    def __init__(self, connector: ModelConnector, path: Union[str, Path], create: bool = False, backup: bool = False,
+                 force: bool = False, sudo_passwd: Optional[str] = None, logger: Optional[Logger] = None) -> None:
         """
         Constructs a ConfigRaw object
 
@@ -86,18 +78,9 @@ class ConfigRaw:
         return len(self.data)
 
     @classmethod
-    def from_ssh_connector(
-        cls,
-        address: str,
-        port: int,
-        user: str,
-        passwd: str,
-        path: Union[str, Path],
-        create: bool = False,
-        backup: bool = False,
-        force: bool = False,
-        logger: Optional[Logger] = None,
-    ) -> Self:
+    def from_ssh_connector(cls, address: str, port: int, user: str, passwd: str, path: Union[str, Path],
+                           create: bool = False, backup: bool = False, force: bool = False,
+                           logger: Optional[Logger] = None) -> Self:
         """
         Creates a Self with given ssh information
 

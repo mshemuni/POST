@@ -11,6 +11,7 @@ from .config.config_raw import ConfigRaw
 from .user.user import User
 from .user.user_list import UserList
 from .utils.common import nmap
+from .sambatool.gpo import GPO
 
 __all__ = [
     "SSHConnector",
@@ -26,6 +27,7 @@ __all__ = [
     "User",
     "UserList",
     "nmap",
+    "GPO"
 ]
 
 __version__ = "1.0.0B"

@@ -192,7 +192,7 @@ class Apt(ModelApt):
         """
         self.logger.info("Upgrading either a package or all packages")
 
-        if isinstance(package_name, str):
+        if package_name is not None:
             escape_string(package_name)
             stdout = self.connector.sudo_run(
                 f"sudo apt upgrade -y --only-upgrade {package_name}", passwd=self.sudo_passwd
@@ -293,8 +293,6 @@ class Apt(ModelApt):
             raise NotFound("No packages were found")
 
         command = f"DEBIAN_FRONTEND=noninteractive apt install {' '.join(package_to_be_installed)} -y"
-        print(command)
-
         stdout = self.connector.sudo_run(command, passwd=self.sudo_passwd)
         _ = stdout.read().decode()
 

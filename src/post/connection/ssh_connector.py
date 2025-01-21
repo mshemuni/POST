@@ -86,6 +86,7 @@ class SSHConnector(ModelConnector):
             client.connect(
                 hostname=self.address, port=self.port,
                 username=self.user, password=self.passwd,
+                timeout=10
             )
             return client
         except ValueError as e:

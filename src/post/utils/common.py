@@ -1,4 +1,5 @@
 import re
+import uuid
 from logging import getLogger, basicConfig
 from typing import Dict, Optional, List
 
@@ -21,17 +22,11 @@ NOPES = [
 
 
 def clear(text: str) -> str:
-    """
-    Clears the text
-    """
     ansi_escape = re.compile(r"\x1b\[[0-9;]*m")
     return ansi_escape.sub("", text)
 
 
 def is_valid_source_line(line: str) -> None:
-    """
-    Checks if a line is a valid source line
-    """
     pattern = re.compile(
         r"^(deb|deb-src)\s+" r"(\[.*?\]\s+)?" r"https?://\S+\s+" r"\S+\s+" r"(\S+.*)?$"
     )
@@ -55,18 +50,12 @@ def option_matcher(option: str) -> Optional[Dict[str, str]]:
 
 
 def escape_string(name: str) -> None:
-    """
-    Escape a string for given package name
-    """
     if any(nope in name for nope in NOPES):
         GLOBAL_LOGGER.error(f"Not cool! {name}")
         raise Nope(f"Not cool! {name}")
 
 
 def check_ssh(ip: str, port: int = 22) -> bool:
-    """
-    Checks if an ssh connection is possible
-    """
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(1)
@@ -78,12 +67,8 @@ def check_ssh(ip: str, port: int = 22) -> bool:
         return False
 
 
-def nmap(first_octet: int = 192, second_octet: int = 168, third_octet: int = 1,
-         start_ip: int = 0, end_ip: int = 255,
-         port: int = 22,) -> List[str]:
-    """
-    nmap an ip range
-    """
+def nmap(first_octet: int = 192, second_octet: int = 168, third_octet: int = 1, start_ip: int = 0, end_ip: int = 255,
+         port: int = 22) -> List[str]:
     ip_list = []
     for last_octet in range(start_ip, end_ip + 1):
         ip = f"{first_octet}.{second_octet}.{third_octet}.{last_octet}"
@@ -93,3 +78,8 @@ def nmap(first_octet: int = 192, second_octet: int = 168, third_octet: int = 1,
             ip_list.append(ip)
 
     return ip_list
+
+
+def random_filename(extension="ps1", prefix="post_", suffix=""):
+    unique_id = uuid.uuid4().hex
+    return f"{prefix}{unique_id}{suffix}.{extension}"
