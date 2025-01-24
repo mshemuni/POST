@@ -301,7 +301,7 @@ class GPO:
         _ = delete_temp_file_stdout.read().decode()
 
     def startup_script(self, gpo: str, script_path: str, parameters: str = "", ad_passwd: Optional[str] = None):
-        root_dir = f"/var/lib/samba/sysvol/niaei.prd/Policies/{gpo}"
+        root_dir = f"/var/lib/samba/sysvol/{self.get_realm()}/Policies/{gpo}"
 
         dir_exist_stdout = self.connector.sudo_run(
             f"ls {root_dir} &>/dev/null && echo 1 || echo 0",
