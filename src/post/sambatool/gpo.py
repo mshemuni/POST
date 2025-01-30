@@ -11,6 +11,15 @@ from post.utils.error import NotFound, CommandError, AlreadyExist, NumberOfEleme
 
 
 def gpo_parser(text: str) -> dict[str, dict[str, str]]:
+    """
+    Parses `samba-tool gpo listall`'s output to a dictionary
+    Args:
+        text (str): the output of `samba-tool gpo listall`
+
+    Returns:
+        Dict: dictionary of GPOs
+
+    """
     gpo_blocks = text.strip().split("\n\n")
 
     gpos = {}
@@ -31,7 +40,7 @@ def gpo_parser(text: str) -> dict[str, dict[str, str]]:
     return gpos
 
 
-def parse_ldif(ldif_str):
+def parse_ldif(ldif_str) -> dict[str, str]:
     data = []
     line_list = ldif_str.split("\n")
 
@@ -44,7 +53,7 @@ def parse_ldif(ldif_str):
             data.append(the_line)
             the_line = line
 
-    def parse_to_dict(text):
+    def parse_to_dict(text) -> dict[str, str]:
         parsed_dict = {}
         current_key = None
 
@@ -72,7 +81,7 @@ def parse_ldif(ldif_str):
 
 class GPO:
     def __init__(self, connector: ModelConnector, ad_passwd: Optional[str] = None, sudo_passwd: Optional[str] = None,
-                 logger: Optional[Logger] = None):
+                 logger: Optional[Logger] = None) -> None:
         if logger is None:
             self.logger = GLOBAL_LOGGER
         else:
@@ -89,6 +98,17 @@ class GPO:
         return self.__str__()
 
     def __password_check(self, ad_passwd: Optional[str] = None) -> str:
+        """
+        Raises an error if both of the password provided in object creation and given to here are None.
+        Otherwise, returns the password
+
+        Args:
+            ad_passwd (str): a password
+
+        Returns:
+            str: the password
+
+        """
         if ad_passwd is None:
             ad_passwd_to_use = self.ad_passwd
         else:
@@ -99,7 +119,13 @@ class GPO:
 
         return ad_passwd_to_use
 
-    def get_realm(self):
+    def get_realm(self) -> str:
+        """
+        Returns the realm that AD is joined to
+
+        Returns:
+            str: the realm that AD is joined to
+        """
         self.logger.info("Getting the realm")
 
         stdout = self.connector.sudo_run(
@@ -109,7 +135,20 @@ class GPO:
         domain = stdout.read().decode().strip()
         return domain
 
-    def dash_b(self, upper: bool = False):
+    def dash_b(self, upper: bool = False) -> str:
+        """
+        Creates the -b value for dldapsearch and ldapmodify
+
+        example:
+        "dc=domain,dc=prd"
+
+        Args:
+            upper (bool, optional): Use uppercase for values. Default=False
+
+        Returns:
+            str: -b value for dldapsearch and ldapmodify
+
+        """
         realm = self.get_realm()
         return ",".join([f"dc={each if not upper else each.upper()}" for each in realm.split(".")])
 
@@ -136,6 +175,12 @@ class GPO:
         return cls(ssh_connector, logger=logger)
 
     def list(self) -> dict[str, dict[str, str]]:
+        """
+        List of GPOs as dictionary
+
+        Returns:
+            dict: dictionary of GPOs
+        """
         self.logger.info("Getting GPO list")
 
         stdout = self.connector.sudo_run("samba-tool gpo listall", passwd=self.sudo_passwd)
@@ -143,6 +188,16 @@ class GPO:
         return gpo_parser(gpo_list_as_text)
 
     def create(self, name: str, ad_passwd: Optional[str] = None) -> str:
+        """
+        Creates a GPO with the given name
+
+        Args:
+            name (str): the name of the GPO
+            ad_passwd (str, optional): the password of user Administrator
+
+        Returns:
+            str: GUID of the GPO
+        """
         self.logger.info("Creating a GPO")
 
         ad_passwd_to_use = self.__password_check(ad_passwd)
@@ -160,7 +215,13 @@ class GPO:
         else:
             raise CommandError("Couldn't get the GPO's GUID. Most probably it could not be created.")
 
-    def delete(self, gpo: str, ad_passwd: Optional[str] = None):
+    def delete(self, gpo: str, ad_passwd: Optional[str] = None) -> None:
+        """
+        Deletes a GPO
+        Args:
+            gpo (str): the GUID of the GPO
+            ad_passwd (str, optional): the password of user Administrator
+        """
         self.logger.info("Delete a GPO")
 
         ad_passwd_to_use = self.__password_check(ad_passwd)
@@ -171,7 +232,15 @@ class GPO:
         )
         _ = stdout.read().decode()
 
-    def link(self, gpo: str, container_dn: str, ad_passwd: Optional[str] = None):
+    def link(self, gpo: str, container_dn: str, ad_passwd: Optional[str] = None) -> None:
+        """
+        Links a GPO to a container
+
+        Args:
+            gpo (str): GUID of the GPO
+            container_dn (str): container's Distinguished Name.
+            ad_passwd (str, optional): the password of user Administrator
+        """
         self.logger.info("Link a GPO")
 
         ad_passwd_to_use = self.__password_check(ad_passwd)
@@ -182,7 +251,15 @@ class GPO:
         )
         _ = stdout.read().decode()
 
-    def unlink(self, gpo: str, container_dn: str, ad_passwd: Optional[str] = None):
+    def unlink(self, gpo: str, container_dn: str, ad_passwd: Optional[str] = None) -> None:
+        """
+        Unlinks a GPO
+
+        Args:
+            gpo (str): GUID of the GPO
+            container_dn (str): container's Distinguished Name.
+            ad_passwd (str, optional): the password of user Administrator
+        """
         self.logger.info("Link a GPO")
 
         ad_passwd_to_use = self.__password_check(ad_passwd)
@@ -193,7 +270,16 @@ class GPO:
         )
         _ = stdout.read().decode()
 
-    def info(self, gpo: str):
+    def info(self, gpo: str) -> dict[str, str]:
+        """
+        Returns info of the GPO
+
+        Args:
+            gpo (str): GUID of the GPO
+
+        Returns:
+            dict: the dictionary that contains info about the GPO
+        """
         realm = self.get_realm()
         dash_b = self.dash_b()
         stdout = self.connector.sudo_run(
@@ -205,6 +291,15 @@ class GPO:
         return parse_ldif(_)
 
     def ldap_add(self, gpo: str, key: str, value: str, ad_passwd: Optional[str] = None) -> None:
+        """
+        Adds key, value pair to ldap database
+
+        Args:
+            gpo (str): GUID of the GPO
+            key (str): the key
+            value (str): the value to be assigned to the key
+            ad_passwd (str, optional): the password of user Administrator
+        """
 
         ad_passwd_to_use = self.__password_check(ad_passwd)
 
@@ -239,6 +334,15 @@ class GPO:
             raise ValueError("Couldn't add the given key/value")
 
     def ldap_edit(self, gpo: str, key: str, value: str, ad_passwd: Optional[str] = None) -> None:
+        """
+        Edits key, value pair to ldap database
+
+        Args:
+            gpo (str): GUID of the GPO
+            key (str): the key
+            value (str): the value to be assigned to the key
+            ad_passwd (str, optional): the password of user Administrator
+        """
 
         ad_passwd_to_use = self.__password_check(ad_passwd)
 
@@ -270,6 +374,13 @@ class GPO:
         _ = delete_temp_file_stdout.read().decode()
 
     def ldap_delete(self, gpo: str, key: str, ad_passwd: Optional[str] = None) -> None:
+        """
+        Deletes a key from ldap database
+        Args:
+            gpo (str): GUID of the GPO
+            key (str): the key
+            ad_passwd (str, optional): the password of user Administrator
+        """
 
         ad_passwd_to_use = self.__password_check(ad_passwd)
 
@@ -300,7 +411,33 @@ class GPO:
         delete_temp_file_stdout = self.connector.sudo_run(f"rm {ldif_file_name}", passwd=self.sudo_passwd)
         _ = delete_temp_file_stdout.read().decode()
 
-    def startup_script(self, gpo: str, script_path: str, parameters: str = "", ad_passwd: Optional[str] = None):
+    def script(self, gpo: str, to: Literal["user", "machine"], on: Literal["startup", "shutdown", "login", "logoff"],
+               script_path: str, parameters: str = "", ad_passwd: Optional[str] = None) -> None:
+        """
+        Adds a script to a GPO
+
+        Args:
+            gpo (str): GUID of the GPO
+            to (str): target. Either `user` or `machine`
+            on (str): when to run. either `startup`, `shutdown`, `login` or `logoff`. Depends on the `to` value...
+            script_path (str): path to the script file
+            parameters (str): parameters to be provided to the script
+            ad_passwd (str, optional): the password of user Administrator
+        """
+        if to.lower() == "user":
+            if on.lower() not in ["login", "logoff"]:
+                raise ValueError("User GPOs only can be applied to logon or logoff")
+
+            extension_key = "gPCUserExtensionNames"
+            extension_value = "[{42B5FAAE-6536-11D2-AE5A-0000F87571E3}{5F6DC0E2-5E16-11D0-A2DB-00AA00B71AEB}]"
+
+        else:
+            if on.lower() not in ["startup", "shutdown"]:
+                raise ValueError("Machine GPOs only can be applied to startup or shutdown")
+
+            extension_key = "gPCMachineExtensionNames"
+            extension_value = "[{42B5FAAE-6536-11D2-AE5A-0000F87571E3}{40B6664F-4972-11D1-A7CA-0000F87571E3}]"
+
         root_dir = f"/var/lib/samba/sysvol/{self.get_realm()}/Policies/{gpo}"
 
         dir_exist_stdout = self.connector.sudo_run(
@@ -312,8 +449,10 @@ class GPO:
         if dir_exist_output == "0":
             raise NotFound("GPO Path does not exist. Maybe GPO does not exist?")
 
-        scripts_dir = f"{root_dir}/Machine/Scripts"
-        startup_dir = f"{scripts_dir}/Startup"
+        to_titled = to.title()
+        on_titled = on.title()
+        scripts_dir = f"{root_dir}/{to_titled}/Scripts"
+        script_place = f"{scripts_dir}/{on_titled}"
         psscripts_file = f"{scripts_dir}/psscripts.ini"
         script_file_name = random_filename()
 
@@ -322,19 +461,19 @@ class GPO:
 
             psscripts = Config(self.connector, psscripts_file, create=True, backup=False)
 
-            if "Startup" in psscripts.keys():
-                orders = [int(each[0]) for each in psscripts.get("Startup").keys()]
+            if on_titled in psscripts.keys():
+                orders = [int(each[0]) for each in psscripts.get(on_titled).keys()]
                 if len(orders) != len(set(orders)) * 2:
                     raise NumberOfElementsError("Looks like you psscripts file is incorrect")
 
                 order = max(orders) + 1
-                current = psscripts["Startup"]
+                current = psscripts[on_titled]
                 current.update({f"{order}CmdLine": f"{script_file_name}", f"{order}Parameters": f"{parameters}"})
-                psscripts["Startup"] = current
+                psscripts[on_titled] = current
             else:
-                psscripts["Startup"] = {f"0CmdLine": f"{script_file_name}", f"0Parameters": f"{parameters}"}
+                psscripts[on_titled] = {f"0CmdLine": f"{script_file_name}", f"0Parameters": f"{parameters}"}
 
-            script = ConfigRaw(self.connector, f"{startup_dir}/{script_file_name}", create=True, backup=False)
+            script = ConfigRaw(self.connector, f"{script_place}/{script_file_name}", create=True, backup=False)
             script.data = script_2_read.read()
 
             chmod_stdout = self.connector.sudo_run(
@@ -344,18 +483,9 @@ class GPO:
             _ = chmod_stdout.read().decode().strip()
 
             try:
-                self.ldap_add(
-                    gpo,
-                    "gPCMachineExtensionNames",
-                    "[{42B5FAAE-6536-11D2-AE5A-0000F87571E3}{40B6664F-4972-11D1-A7CA-0000F87571E3}]",
-                    ad_passwd
-                )
+                self.ldap_add(gpo, extension_key, extension_value, ad_passwd)
             except AlreadyExist as e:
                 self.logger.warning(e)
 
             version_number = info["versionNumber"]
             self.ldap_edit(gpo, "versionNumber", str(int(version_number) + 1), ad_passwd)
-
-    def script(self, gpo: str, script_path: str, to: Literal["user", "machine"],
-               on: Literal["startup", "shutdown", "login", "logoff"], ad_passwd: Optional[str] = None):
-        pass
