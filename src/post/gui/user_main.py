@@ -286,7 +286,7 @@ class UserMainForm(QtWidgets.QWidget, Ui_FormUser):
                 )
             )
 
-            for each_user in user.list():
+            for each_user in user.__list():
                 info = user.info(each_user)
                 group_layer = QtWidgets.QTreeWidgetItem(tree_widget, [each_user])
                 group_layer.setFirstColumnSpanned(True)
@@ -438,7 +438,7 @@ class UserMainForm(QtWidgets.QWidget, Ui_FormUser):
         self.the_parent.logger.infor("Reloading user list")
 
         tree_widget.clear()
-        for each_user in user.list():
+        for each_user in user.__list():
             info = user.info(each_user)
             group_layer = QtWidgets.QTreeWidgetItem(tree_widget, [each_user])
             group_layer.setFirstColumnSpanned(True)

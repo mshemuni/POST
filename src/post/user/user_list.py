@@ -92,7 +92,7 @@ class UserList(ModelUserList):
         users = []
         for user in self.users:
             try:
-                users.append(user.list())
+                users.append(user.__list())
             except Exception as e:
                 self.logger.warning(e)
 
